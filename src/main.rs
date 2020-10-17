@@ -9,8 +9,8 @@ use actix_web::{HttpServer, HttpResponse, Responder, get, put, App, web, Error};
 use diesel::pg::PgConnection;
 use dotenv::dotenv;
 use std::env;
-use tresor_backend::{fetch_all_secrets, insert_secret};
-use tresor_backend::models::Secret;
+use tresor_backend::{find_all_secrets, insert};
+use tresor_backend::models::{Secret, NewSecret};
 use actix_web::dev::Body;
 use diesel::r2d2::ConnectionManager;
 use r2d2::Pool;
@@ -29,25 +29,25 @@ async fn get_secrets(data: web::Data<AppState>) -> Result<HttpResponse, Error> {
         .expect("Could not get DB connection from pool!");
 
     //web::block() is used to offload the blocking DB operations without blocking the server thread.
-    let maybe_secrets: Option<Vec<Secret>> = web::block(move || fetch_all_secrets(&connection))
+    let secrets: Vec<Secret> = web::block(move || find_all_secrets(&connection))
         .await
         .map_err(handle_internal_server_error)?;
 
-    match maybe_secrets {
-        None => { Ok(HttpResponse::NotFound().body("No secrets found!")) }   //TODO restrict to specific user later
-        Some(secrets) => { Ok(HttpResponse::Ok().json(secrets)) }
+    match secrets.as_slice() {
+        [] => { Ok(HttpResponse::NotFound().body("No secrets found!")) }   //TODO restrict to specific user later
+        _ => { Ok(HttpResponse::Ok().json(secrets)) }
     }
 }
 
 #[put("/secret")]
-async fn put_secret(data: web::Data<AppState>, query: web::Query<Secret>) -> Result<HttpResponse, Error> {
+async fn put_secret(data: web::Data<AppState>, query: web::Query<NewSecret>) -> Result<HttpResponse, Error> {
     //TODO do not handle payload via query params
     let connection = data.connection_pool
         .get()
         .expect("Could not get DB connection from pool!");
 
     //web::block() is used to offload the blocking DB operations without blocking the server thread.
-    let secret: Secret = web::block(move || insert_secret(&connection, &query.into_inner()))
+    let secret: Secret = web::block(move || insert(&connection, &query.into_inner()))
         .await
         .map_err(handle_internal_server_error)?;
 
