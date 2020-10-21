@@ -1,20 +1,21 @@
+mod settings;
+
+extern crate openssl;
+extern crate diesel;
 #[macro_use]
 extern crate log;
-extern crate diesel;
-extern crate dotenv;
 
-use env_logger::Env;
 use actix_web::middleware::Logger;
 use actix_web::{HttpServer, HttpResponse, Responder, get, put, App, web, Error};
 use diesel::pg::PgConnection;
-use dotenv::dotenv;
-use std::env;
 use tresor_backend::{find_all_secrets, insert};
 use tresor_backend::models::{Secret, NewSecret};
 use actix_web::dev::Body;
 use diesel::r2d2::ConnectionManager;
 use r2d2::Pool;
 use actix_web::error::BlockingError;
+use crate::settings::Settings;
+use futures::io::ErrorKind;
 
 #[get("/")]
 async fn hello() -> impl Responder {
@@ -58,10 +59,16 @@ async fn put_secret(data: web::Data<AppState>, query: web::Query<NewSecret>) -> 
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::from_env(Env::default().default_filter_or("info")).init();
+    let settings = Settings::init()
+        .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
+
+    env_logger::builder().parse_filters(&settings.logging.level).init();
     info!("Tresor is starting up");
 
-    let connection_pool = build_db_connection_pool();
+    let listen_interface = &settings.server.interface;
+    let listen_port = &settings.server.port;
+
+    let connection_pool = build_db_connection_pool(&settings);
 
     HttpServer::new(move || {
         App::new()
@@ -73,7 +80,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_secrets)
             .service(put_secret)
     })
-        .bind("127.0.0.1:8084")?
+        .bind(format!("{}:{}", &listen_interface, &listen_port))?
         .run()
         .await
 }
@@ -82,12 +89,12 @@ struct AppState {
     connection_pool: Pool<ConnectionManager<PgConnection>>
 }
 
-fn build_db_connection_pool() -> Pool<ConnectionManager<PgConnection>> {
-    dotenv().ok();
-    let database_url = env::var("DATABASE_URL")
-        .expect("Database URL for Postgres connection must be set!");
+fn build_db_connection_pool(settings: &Settings) -> Pool<ConnectionManager<PgConnection>> {
+    let database_url = &settings.database.url;
     let manager = ConnectionManager::<PgConnection>::new(database_url);
-    r2d2::Pool::builder().build(manager).expect("Failed to create DB connection pool!")
+    r2d2::Pool::builder()
+        .build(manager)
+        .expect("Failed to create DB connection pool, please check the database url!")
 }
 
 fn handle_internal_server_error(error: BlockingError<diesel::result::Error>) -> HttpResponse<Body> {

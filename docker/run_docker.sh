@@ -1,0 +1,1 @@
+sudo docker run -p 8084:8084 -it --rm tresor_backend

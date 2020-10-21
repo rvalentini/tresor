@@ -1,0 +1,9 @@
+[server]
+interface = "127.0.0.1"
+port = "8084"
+
+[database]
+url = "postgres://postgres:aintsecure@localhost/tresor"
+
+[logging]
+level = "info"
