@@ -6,21 +6,52 @@ extern crate diesel;
 extern crate log;
 
 use actix_web::middleware::Logger;
-use actix_web::{HttpServer, HttpResponse, Responder, get, put, App, web, Error};
+use actix_web::{HttpServer, HttpResponse, Responder, get, put, post, App, web, Error};
 use diesel::pg::PgConnection;
 use tresor_backend::{find_all_secrets, insert};
-use tresor_backend::models::{Secret, NewSecret};
+use tresor_backend::models::{Secret, NewSecret, Identity, User};
 use actix_web::dev::Body;
 use diesel::r2d2::ConnectionManager;
 use r2d2::Pool;
 use actix_web::error::BlockingError;
 use crate::settings::Settings;
 use futures::io::ErrorKind;
+use actix_session::{CookieSession, Session};
+use serde::{Serialize, Deserialize};
 
 #[get("/")]
 async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello world!")
 }
+
+#[derive(Deserialize)]
+struct Info {
+    name: String,
+}
+
+//test-route for cookie management
+#[get("/cookie")]
+async fn cookie(session: Session, info: web::Query<Info>) -> Result<HttpResponse, Error> {
+    if let Some(identity) = session.get::<Identity>("identity")? {
+        info!("Found identity data in cookie: {:?}", identity);
+        Ok(HttpResponse::Ok().json(&identity))
+
+    } else {
+        info!("No identity found! Setting '{}'", &info.name);
+        let id = Identity {
+            token: "some_token".to_string(),
+            user: User {
+                id: 100,
+                last_name: "Parker".to_string(),
+                first_name: info.name.clone(),
+                email: "parker@daily-bugle.com".to_string()
+            }
+        };
+        session.set("identity", &id);
+        Ok(HttpResponse::Ok().json(&id))
+    }
+}
+
 
 #[get("/secrets")]
 async fn get_secrets(data: web::Data<AppState>) -> Result<HttpResponse, Error> {
@@ -73,10 +104,13 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
+            .wrap(CookieSession::private(&[0; 32]) //TODO generate key?
+                .secure(false)) //TODO enable TLS
             .data(AppState {
                 connection_pool: connection_pool.clone()
             })
             .service(hello)
+            .service(cookie)
             .service(get_secrets)
             .service(put_secret)
     })
