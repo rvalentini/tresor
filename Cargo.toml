@@ -17,4 +17,7 @@ diesel = { version = "1.4.4", features = ["postgres", "r2d2"] }
 r2d2 = "0.8.9"
 serde = "1.0"
 futures = "0.3.5"
+reqwest = "0.10.8"
+openidconnect = { version = "1.0", features = ["futures-03", "reqwest-010"], default-features = false }
+oauth2 = "3.0.0"
 serde_json = "1.0"

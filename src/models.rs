@@ -1,5 +1,8 @@
 use serde::{Serialize, Deserialize};
 use super::schema::secrets;
+use openidconnect::{PkceCodeVerifier, Nonce, CsrfToken};
+use std::fmt;
+use serde::export::Formatter;
 
 // secrets
 
@@ -25,17 +28,67 @@ pub struct NewSecret {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User {
-    pub id: u32,
-    pub last_name: String,
-    pub first_name: String,
+    pub id: String,
+    pub tresor_id: String,
+    pub tresor_role: Role,
     pub email: String
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum  Role {
+    Admin,
+    User
+}
+
+impl Role {
+    pub fn from_string(role: &str) -> Result<Role, UnknownRoleError> {
+        match role {
+            "admin" => Ok(Role::Admin),
+            "user" => Ok(Role::User),
+            _ => Err(UnknownRoleError::new(role))
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Identity {
-    pub token: String,
     pub user: User
 }
 
+// OpenID Connect
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OpenIdConnectState {
+    pub pkce_verifier: PkceCodeVerifier,
+    pub csrf_token: CsrfToken,
+    pub nonce: Nonce
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OpCallback {
+    pub state: String,
+    pub session_state: String,
+    pub code: String
+}
+
+// Error types
+
+#[derive(Debug)]
+pub struct UnknownRoleError {
+    description: String
+}
+
+impl UnknownRoleError {
+    fn new(unknown_role: &str) -> Self {
+        UnknownRoleError {
+            description: format!("The role '{}' is not defined", unknown_role) }
+    }
+}
+
+impl fmt::Display for UnknownRoleError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.description)
+    }
+}
 
 
