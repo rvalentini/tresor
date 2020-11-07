@@ -6,7 +6,7 @@ extern crate diesel;
 extern crate log;
 
 use actix_web::middleware::Logger;
-use actix_web::{HttpServer, HttpResponse, get, put, App, web, Error};
+use actix_web::{HttpServer, HttpResponse, get, put, App, web, Error, ResponseError};
 use diesel::pg::PgConnection;
 use tresor_backend::{find_all_secrets, insert};
 use tresor_backend::models::{Secret, NewSecret, Identity, User, OpCallback, OpenIdConnectState, Role};
@@ -23,15 +23,17 @@ use openidconnect::core::{CoreProviderMetadata, CoreAuthenticationFlow, CoreAuth
 use std::sync::Arc;
 use oauth2::TokenResponse;
 use oauth2::basic::{BasicErrorResponseType, BasicTokenType};
+use derive_more::Display;
 
 type OidcClient = Client<TresorClaims, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt, StandardErrorResponse<BasicErrorResponseType>, StandardTokenResponse<IdTokenFields<TresorClaims, EmptyExtraTokenFields, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType>, BasicTokenType>, BasicTokenType>;
 
 #[get("/")]
 async fn hello(session: Session) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>("identity")
+        .map_err(|_| SessionError::ReadSessionError("unknown".to_string()))? {
         Ok(HttpResponse::Ok().body(format!("Tresor says: Hey ho! Your identity is: {:?}", &identity.user)))
     } else {
-       Ok( HttpResponse::SeeOther().header("Location", "/login").finish())
+        Ok(HttpResponse::Unauthorized().finish())
     }
 }
 
@@ -54,31 +56,79 @@ async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRespon
         nonce,
     };
 
-    match session.set("oidc_state", &oidc_state) {
-        Ok(_) => {} //all fine
-        Err(_) => {
-            error!("Could not persist oidc-state to cookie for auth request");
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
-    }
+    session.set("oidc_state", &oidc_state)
+        .map_err(|_| SessionError::WriteSessionError("unknown".to_string()))?;
+
+    //redirect to OpenIdProvider for authentication
     Ok(HttpResponse::SeeOther().header("Location", auth_url.as_str()).finish())
 }
 
 #[get("/logout")]
 async fn logout(session: Session) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>("identity")
+        .map_err(|_| SessionError::ReadSessionError("unknown".to_string()))? {
         info!("Clearing Tresor session for user {}", &identity.user.id);
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
-        Ok(HttpResponse::SeeOther().header("Location", "http://127.0.0.1:8080/auth/realms/master/protocol/openid-connect/logout?redirect_uri=http://127.0.0.1:8084").finish())
+        Ok(HttpResponse::SeeOther().header("Location", "http://127.0.0.1:8080/auth/realms/master/protocol/openid-connect/logout?redirect_uri=http://127.0.0.1:8084/login").finish())
     } else {
-        error!("Logout called without valid session - shouldn't happen");
+        warn!("/logout called without valid session information");
         Ok(HttpResponse::Unauthorized().finish())
     }
-
 }
 
-//TODO use ? operator and move error-handling to separate function
+impl ResponseError for OIDCError {
+    fn error_response(&self) -> HttpResponse {
+        match self {
+            OIDCError::ExchangeTokenError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::EmptyIdTokenError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::ClaimsVerificationError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::MissingTokenHashError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::SigningError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::AccessTokenVerificationError => { HttpResponse::InternalServerError().finish() }
+            OIDCError::ClaimsContentError(_) => { HttpResponse::InternalServerError().finish() }
+            OIDCError::CsrfStateError => { HttpResponse::InternalServerError().finish() }
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum OIDCError {
+    #[display(fmt = "Could not exchange OIDC access token for authorization code at OpenId Provider")]
+    ExchangeTokenError,
+    #[display(fmt = "OpenIdProvider response did not contain an ID token")]
+    EmptyIdTokenError,
+    #[display(fmt = "Verification of OIDC claims received from OpenIdProvider failed")]
+    ClaimsVerificationError,
+    #[display(fmt = "Received claims did not contain an access token hash")]
+    MissingTokenHashError,
+    #[display(fmt = "Unsupported signing algorithm used for signing the access token hash")]
+    SigningError,
+    #[display(fmt = "Access token hash presented by OIDProvider does not fit the access token")]
+    AccessTokenVerificationError,
+    #[display(fmt = "Claim does not contain all necessary identity information for user {}", _0)]
+    ClaimsContentError(String),
+    #[display(fmt = "Client session-cookie does not contain any csrf_state")]
+    CsrfStateError,
+}
+
+impl ResponseError for SessionError {
+    fn error_response(&self) -> HttpResponse {
+        match self {
+            SessionError::ReadSessionError(_) => { HttpResponse::InternalServerError().finish() }
+            SessionError::WriteSessionError(_) => { HttpResponse::InternalServerError().finish() }
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum SessionError {
+    #[display(fmt = "Could not read from session-cookie for user {}", _0)]
+    ReadSessionError(String),
+    #[display(fmt = "Could not write to session-cookie for user{}", _0)]
+    WriteSessionError(String),
+}
+
 #[get("/callback")]
 async fn callback(session: Session, data: web::Data<AppState>, authorization_info: web::Query<OpCallback>) -> Result<HttpResponse, Error> {
     if let Some(oidc_state) = session.get::<OpenIdConnectState>("oidc_state")? {
@@ -87,42 +137,31 @@ async fn callback(session: Session, data: web::Data<AppState>, authorization_inf
         ).set_pkce_verifier(oidc_state.pkce_verifier)
             .request_async(async_http_client)
             .await
-            .map_err(|err| {
-                error!("Could not exchange access token for authorization code at OpenId Provider: {}", err);
-                HttpResponse::InternalServerError()
-            })?;
+            .map_err(|_| OIDCError::ExchangeTokenError)?;
 
         let id_token = token_response.extra_fields().id_token()
-            .ok_or_else(|| {
-                error!("OpenId Provider did not return a well formatted ID token");
-                HttpResponse::InternalServerError().finish()
-            })?;
+            .ok_or_else(|| OIDCError::EmptyIdTokenError)?;
 
         let claims = id_token.claims(
             &data.oidc_client.id_token_verifier(),
             &oidc_state.nonce)
-            .map_err(|err| {
-                error!("Returned claims from OpenId Provider could not be verified: {}", err);
-                HttpResponse::InternalServerError()
-            })?;
+            .map_err(|_| OIDCError::ClaimsVerificationError)?;
 
+        match claims.access_token_hash() {
+            None => { Err(OIDCError::MissingTokenHashError) }
+            Some(given_token_hash) => {
+                let calculated_token_hash = AccessTokenHash::from_token(
+                    token_response.access_token(),
+                    &id_token.signing_alg().map_err(|_| OIDCError::SigningError)?,
+                ).map_err(|_| OIDCError::SigningError)?;
 
-        if let Some(expected_access_token_hash) = claims.access_token_hash() {
-            let actual_access_token_hash = AccessTokenHash::from_token(
-                token_response.access_token(),
-                &id_token.signing_alg().map_err(|err| {
-                    error!("Unsupported signing algorithm used for ID token {}", err);
-                    HttpResponse::InternalServerError()
-                })?,
-            ).map_err(|err| {
-                error!("Could not calculate AccessTokenHash: {}", err);
-                HttpResponse::InternalServerError()
-            })?;
-            if actual_access_token_hash != *expected_access_token_hash {
-                error!("Actual and expected access_token hashes do not match");
-                return Ok(HttpResponse::InternalServerError().finish());
+                if calculated_token_hash != *given_token_hash {
+                    Err(OIDCError::AccessTokenVerificationError)
+                } else {
+                    Ok(())
+                }
             }
-        }
+        }?;
 
         let user_id = claims.subject().to_string();
 
@@ -130,42 +169,26 @@ async fn callback(session: Session, data: web::Data<AppState>, authorization_inf
         (&claims.additional_claims().tresor_id,
          &claims.additional_claims().tresor_role,
          &claims.email().map(|mail| mail.as_str())) {
-            match Role::from_string(role) {
-                Ok(role) => {
-                    let identity = Identity {
-                        user: User {
-                            id: user_id.clone(),
-                            tresor_id: id.to_string(),
-                            tresor_role: role,
-                            email: mail.to_string(),
-                        },
-                    };
-                    match session.set("identity", identity) {
-                        Ok(_) => {} //all fine
-                        Err(_) => {
-                            error!("Could not persist identity to cookie for user {}", &user_id);
-                            return Ok(HttpResponse::InternalServerError().finish());
-                        }
-                    }
-                }
-                Err(err) => {
-                    error!("Identity for user {} contains an unknown role: {}", user_id, err);
-                    return Ok(HttpResponse::InternalServerError().finish());
-                }
-            }
+            let role = Role::from_string(role)?;
+            let identity = Identity {
+                user: User {
+                    id: user_id.clone(),
+                    tresor_id: id.to_string(),
+                    tresor_role: role,
+                    email: mail.to_string(),
+                },
+            };
+            session.set("identity", identity)
+                .map_err(|_| SessionError::WriteSessionError(user_id.clone()))?;
         } else {
-            error!("Received identity for user {} is invalid", user_id);
-            return Ok(HttpResponse::InternalServerError().finish());
+            return Err(Error::from(OIDCError::ClaimsContentError(user_id.clone())));
         }
         session.remove("oidc_state");
-        info!("Successfully authenticated user {}", claims.subject().as_str());
+        info!("Successfully authenticated user {}", &user_id);
     } else {
-        error!("No csrf_state found! Cannot process OpenID Provider callback! \
-        Could also be simply an unauthorized call to /callback! Returning 401 ...");
-        return Ok(HttpResponse::Unauthorized().finish());
+        return Err(Error::from(OIDCError::CsrfStateError));
     }
-    //redirect to root for now - later maybe just 200 - Success?
-    Ok(HttpResponse::SeeOther().header("Location", "/").finish())
+    Ok(HttpResponse::Ok().body("Success"))
 }
 
 
@@ -187,7 +210,7 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
             _ => { Ok(HttpResponse::Ok().json(secrets)) }
         }
     } else {
-        Ok(HttpResponse::SeeOther().header("Location", "/login").finish())
+        Ok(HttpResponse::Unauthorized().finish())
     }
 }
 
@@ -195,19 +218,20 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
 async fn put_secret(session: Session, data: web::Data<AppState>, query: web::Query<NewSecret>) -> Result<HttpResponse, Error> {
     //TODO do not handle payload via query params
     //TODO use identity
+    //TODO improve error handling
     if let Some(identity) = session.get::<Identity>("identity")? {
         let connection = data.connection_pool
             .get()
-            .expect("Could not get DB connection from pool!");
+            .expect("Could not get DB connection from pool!"); //TODO make error
 
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
         let secret: Secret = web::block(move || insert(&connection, &query.into_inner()))
             .await
-            .map_err(handle_internal_server_error)?;
+            .map_err(handle_internal_server_error)?; //TODO better error handling
 
         Ok(HttpResponse::Ok().json(secret))
     } else {
-        Ok(HttpResponse::SeeOther().header("Location", "/login").finish())
+        Ok(HttpResponse::Unauthorized().finish())
     }
 }
 

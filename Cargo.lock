@@ -3045,6 +3045,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "config",
+ "derive_more",
  "diesel",
  "env_logger",
  "futures 0.3.6",

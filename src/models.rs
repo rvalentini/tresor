@@ -3,6 +3,7 @@ use super::schema::secrets;
 use openidconnect::{PkceCodeVerifier, Nonce, CsrfToken};
 use std::fmt;
 use serde::export::Formatter;
+use actix_web::{ResponseError, HttpResponse};
 
 // secrets
 
@@ -73,6 +74,7 @@ pub struct OpCallback {
 
 // Error types
 
+//TODO this will become a enum sooner or later
 #[derive(Debug)]
 pub struct UnknownRoleError {
     description: String
@@ -84,6 +86,13 @@ impl UnknownRoleError {
             description: format!("The role '{}' is not defined", unknown_role) }
     }
 }
+
+impl ResponseError for UnknownRoleError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::InternalServerError().finish()
+    }
+}
+
 
 impl fmt::Display for UnknownRoleError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
