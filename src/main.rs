@@ -10,7 +10,6 @@ use actix_web::{HttpServer, HttpResponse, get, put, App, web, Error, ResponseErr
 use diesel::pg::PgConnection;
 use tresor_backend::{find_all_secrets, insert};
 use tresor_backend::models::{Secret, NewSecret, Identity, User, OpCallback, OpenIdConnectState, Role};
-use actix_web::dev::{Body};
 use diesel::r2d2::ConnectionManager;
 use r2d2::Pool;
 use actix_web::error::BlockingError;
@@ -77,18 +76,23 @@ async fn logout(session: Session) -> Result<HttpResponse, Error> {
     }
 }
 
+#[derive(Debug, Display)]
+pub enum DatabaseError {
+    #[display(fmt = "Encountered the following Diesel operation error: {}", _0)]
+    DieselOperationError(diesel::result::Error),
+    #[display(fmt = "Problem with Actix threadpool")]
+    ExecutionError
+}
+
+impl ResponseError for DatabaseError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::InternalServerError().finish()
+    }
+}
+
 impl ResponseError for OIDCError {
     fn error_response(&self) -> HttpResponse {
-        match self {
-            OIDCError::ExchangeTokenError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::EmptyIdTokenError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::ClaimsVerificationError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::MissingTokenHashError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::SigningError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::AccessTokenVerificationError => { HttpResponse::InternalServerError().finish() }
-            OIDCError::ClaimsContentError(_) => { HttpResponse::InternalServerError().finish() }
-            OIDCError::CsrfStateError => { HttpResponse::InternalServerError().finish() }
-        }
+        HttpResponse::InternalServerError().finish()
     }
 }
 
@@ -114,10 +118,7 @@ pub enum OIDCError {
 
 impl ResponseError for SessionError {
     fn error_response(&self) -> HttpResponse {
-        match self {
-            SessionError::ReadSessionError(_) => { HttpResponse::InternalServerError().finish() }
-            SessionError::WriteSessionError(_) => { HttpResponse::InternalServerError().finish() }
-        }
+        HttpResponse::InternalServerError().finish()
     }
 }
 
@@ -203,7 +204,10 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
         let secrets: Vec<Secret> = web::block(move || find_all_secrets(&connection))
             .await
-            .map_err(handle_internal_server_error)?;
+            .map_err(|err| match err {
+                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
+                BlockingError::Canceled => { DatabaseError::ExecutionError }
+            })?;
 
         match secrets.as_slice() {
             [] => { Ok(HttpResponse::NotFound().body("No secrets found!")) }  //TODO restrict to specific user later
@@ -227,7 +231,10 @@ async fn put_secret(session: Session, data: web::Data<AppState>, query: web::Que
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
         let secret: Secret = web::block(move || insert(&connection, &query.into_inner()))
             .await
-            .map_err(handle_internal_server_error)?; //TODO better error handling
+            .map_err(|err| match err {
+                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
+                BlockingError::Canceled => { DatabaseError::ExecutionError }
+            })?;
 
         Ok(HttpResponse::Ok().json(secret))
     } else {
@@ -314,7 +321,3 @@ fn build_db_connection_pool(settings: &Settings) -> Pool<ConnectionManager<PgCon
         .expect("Failed to create DB connection pool, please check the database url!")
 }
 
-fn handle_internal_server_error(error: BlockingError<diesel::result::Error>) -> HttpResponse<Body> {
-    error!("{}", error);
-    HttpResponse::InternalServerError().finish()
-}
