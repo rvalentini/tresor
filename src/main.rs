@@ -6,9 +6,9 @@ extern crate diesel;
 extern crate log;
 
 use actix_web::middleware::Logger;
-use actix_web::{HttpServer, HttpResponse, get, put, App, web, Error, ResponseError};
+use actix_web::{HttpServer, HttpResponse, get, put, delete, App, web, Error, ResponseError};
 use diesel::pg::PgConnection;
-use tresor_backend::{find_all_secrets, insert};
+use tresor_backend::{find_all_secrets, insert_secret, find_secret_by_client_side_id, is_owner_of_secret, delete_secret_by_client_side_id};
 use tresor_backend::models::{Secret, NewSecret, Identity, User, OpCallback, OpenIdConnectState, Role};
 use diesel::r2d2::ConnectionManager;
 use r2d2::Pool;
@@ -78,10 +78,12 @@ async fn logout(session: Session) -> Result<HttpResponse, Error> {
 
 #[derive(Debug, Display)]
 pub enum DatabaseError {
+    #[display(fmt = "Could not acquire data base connection from pool")]
+    ConnectionError,
     #[display(fmt = "Encountered the following Diesel operation error: {}", _0)]
     DieselOperationError(diesel::result::Error),
     #[display(fmt = "Problem with Actix threadpool")]
-    ExecutionError
+    ExecutionError,
 }
 
 impl ResponseError for DatabaseError {
@@ -96,6 +98,7 @@ impl ResponseError for OIDCError {
     }
 }
 
+//TODO move out of main.rs
 #[derive(Debug, Display)]
 pub enum OIDCError {
     #[display(fmt = "Could not exchange OIDC access token for authorization code at OpenId Provider")]
@@ -192,17 +195,71 @@ async fn callback(session: Session, data: web::Data<AppState>, authorization_inf
     Ok(HttpResponse::Ok().body("Success"))
 }
 
+#[get("/secret/{secret_id_client_side}")]
+async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
+    if let Some(identity) = session.get::<Identity>("identity")? {
+        let connection = data.connection_pool
+            .get()
+            .map_err(|_| DatabaseError::ConnectionError)?;
+
+        let maybe_secret: Option<Secret> = web::block(move || {
+            if is_owner_of_secret(&connection, identity, &secret_id_client_side)? {
+                if let Some(secret) = find_secret_by_client_side_id(&connection, &secret_id_client_side)? {
+                    return Ok(Some(secret))
+                }
+            }
+            Ok(None)
+        }).await
+          .map_err(|err| match err {
+                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
+                BlockingError::Canceled => { DatabaseError::ExecutionError }
+            })?;
+        match maybe_secret {
+            None => { Ok(HttpResponse::NotFound().body(format!("Requested secret does not exist"))) }
+            Some(secret) => { Ok(HttpResponse::Ok().json(secret)) }
+        }
+    } else {
+        Ok(HttpResponse::Unauthorized().finish())
+    }
+}
+
+#[delete("/secret/{secret_id_client_side}")]
+async fn delete_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
+    if let Some(identity) = session.get::<Identity>("identity")? {
+        let connection = data.connection_pool
+            .get()
+            .map_err(|_| DatabaseError::ConnectionError)?;
+
+        let delete_success: bool = web::block(move || {
+            if is_owner_of_secret(&connection, identity, &secret_id_client_side)? {
+                if let Some(_) = delete_secret_by_client_side_id(&connection, &secret_id_client_side)? {
+                    return Ok(true)
+                }
+            }
+            Ok(false)
+        }).await
+            .map_err(|err| match err {
+                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
+                BlockingError::Canceled => { DatabaseError::ExecutionError }
+            })?;
+        match delete_success {
+            false => { Ok(HttpResponse::NotFound().body(format!("Cannot delete, secret does not exist"))) }
+            true => { Ok(HttpResponse::NoContent().finish()) }
+        }
+    } else {
+        Ok(HttpResponse::Unauthorized().finish())
+    }
+}
 
 #[get("/secrets")]
 async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>("identity")? {
-        //TODO use identity
         let connection = data.connection_pool
             .get()
-            .expect("Could not get DB connection from pool!");
+            .map_err(|_| DatabaseError::ConnectionError)?;
 
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
-        let secrets: Vec<Secret> = web::block(move || find_all_secrets(&connection))
+        let secrets: Vec<Secret> = web::block(move || find_all_secrets(&connection, identity))
             .await
             .map_err(|err| match err {
                 BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
@@ -210,7 +267,7 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
             })?;
 
         match secrets.as_slice() {
-            [] => { Ok(HttpResponse::NotFound().body("No secrets found!")) }  //TODO restrict to specific user later
+            [] => { Ok(HttpResponse::NotFound().body("No secrets found!")) }
             _ => { Ok(HttpResponse::Ok().json(secrets)) }
         }
     } else {
@@ -219,32 +276,26 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
 }
 
 #[put("/secret")]
-async fn put_secret(session: Session, data: web::Data<AppState>, query: web::Query<NewSecret>) -> Result<HttpResponse, Error> {
-    //TODO do not handle payload via query params
-    //TODO use identity
-    //TODO improve error handling
+async fn put_secret(session: Session, data: web::Data<AppState>, payload: web::Json<NewSecret>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>("identity")? {
         let connection = data.connection_pool
             .get()
-            .expect("Could not get DB connection from pool!"); //TODO make error
+            .map_err(|_| DatabaseError::ConnectionError)?;
 
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
-        let secret: Secret = web::block(move || insert(&connection, &query.into_inner()))
+        let secret: Secret = web::block(move || insert_secret(&connection, identity, &payload))
             .await
             .map_err(|err| match err {
                 BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
                 BlockingError::Canceled => { DatabaseError::ExecutionError }
             })?;
-
         Ok(HttpResponse::Ok().json(secret))
     } else {
         Ok(HttpResponse::Unauthorized().finish())
     }
 }
 
-//TODO implement DELETE, UPDATE for secret/secrets
-
-//TODO implement /login for keycloak callback
+//TODO implement UPDATE for secret/secrets
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -291,7 +342,9 @@ async fn main() -> std::io::Result<()> {
             .service(login)
             .service(logout)
             .service(callback)
+            .service(get_secret)
             .service(get_secrets)
+            .service(delete_secret)
             .service(put_secret)
     })
         .bind(format!("{}:{}", &listen_interface, &listen_port))?

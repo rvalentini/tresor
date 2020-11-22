@@ -1,28 +1,44 @@
 use serde::{Serialize, Deserialize};
 use super::schema::secrets;
+use super::schema::user_secret;
 use openidconnect::{PkceCodeVerifier, Nonce, CsrfToken};
 use std::fmt;
 use serde::export::Formatter;
 use actix_web::{ResponseError, HttpResponse};
+use uuid::Uuid;
 
-// secrets
+// database
 
 #[derive(Queryable, Insertable, Serialize)]  //TODO write custom serializer to drop 'id' field -> client should never be aware of DB id
 pub struct Secret {
+    #[serde(skip_serializing)]
     pub id: i32,
-    pub client_id: i32,
+    pub client_side_id: String,
     pub name: String,
     pub content: String,
     pub url: Option<String>
 }
 
-#[derive(Queryable, Insertable, AsChangeset, Deserialize)]
+#[derive(Queryable, Insertable, AsChangeset, Deserialize, Debug)]
 #[table_name="secrets"]
 pub struct NewSecret {
-    pub client_id: i32,
+    #[serde(default = "random_uuid")]
+    pub client_side_id: String,
     pub name: String,
     pub content: String,
     pub url: Option<String>
+}
+
+fn random_uuid() -> String {
+    Uuid::new_v4().to_string()
+}
+
+#[derive(Queryable, Insertable, AsChangeset)]
+#[table_name="user_secret"]
+pub struct UserSecret {
+    pub user_id: String,
+    pub secret_id: i32,
+    pub secret_id_client_side: String
 }
 
 // user-management
