@@ -20,15 +20,18 @@ use openidconnect::{IssuerUrl, ClientId, RedirectUrl, PkceCodeChallenge, CsrfTok
 use openidconnect::reqwest::async_http_client;
 use openidconnect::core::{CoreProviderMetadata, CoreAuthenticationFlow, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt};
 use std::sync::Arc;
-use oauth2::TokenResponse;
+use oauth2::{TokenResponse, ClientSecret};
 use oauth2::basic::{BasicErrorResponseType, BasicTokenType};
 use derive_more::Display;
+
+const OIDC_SESSION_KEY: &str = "oidc_state";
+const IDENTITY_SESSION_KEY: &str = "identity";
 
 type OidcClient = Client<TresorClaims, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt, StandardErrorResponse<BasicErrorResponseType>, StandardTokenResponse<IdTokenFields<TresorClaims, EmptyExtraTokenFields, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType>, BasicTokenType>, BasicTokenType>;
 
 #[get("/")]
 async fn hello(session: Session) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)
         .map_err(|_| SessionError::ReadSessionError("unknown".to_string()))? {
         Ok(HttpResponse::Ok().body(format!("Tresor says: Hey ho! Your identity is: {:?}", &identity.user)))
     } else {
@@ -45,7 +48,7 @@ async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRespon
             CoreAuthenticationFlow::AuthorizationCode,
             CsrfToken::new_random,
             Nonce::new_random)
-        .add_scope(Scope::new("tresor".to_string()))
+        .add_scope(Scope::new(data.settings.auth.scope.clone()))
         .set_pkce_challenge(pkce_challenge)
         .url();
 
@@ -55,7 +58,7 @@ async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRespon
         nonce,
     };
 
-    session.set("oidc_state", &oidc_state)
+    session.set(OIDC_SESSION_KEY, &oidc_state)
         .map_err(|_| SessionError::WriteSessionError("unknown".to_string()))?;
 
     //redirect to OpenIdProvider for authentication
@@ -63,13 +66,16 @@ async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRespon
 }
 
 #[get("/logout")]
-async fn logout(session: Session) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")
+async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)
         .map_err(|_| SessionError::ReadSessionError("unknown".to_string()))? {
         info!("Clearing Tresor session for user {}", &identity.user.id);
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
-        Ok(HttpResponse::SeeOther().header("Location", "http://127.0.0.1:8080/auth/realms/master/protocol/openid-connect/logout?redirect_uri=http://127.0.0.1:8084/login").finish())
+        Ok(HttpResponse::SeeOther().header("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
+                                                               &data.settings.auth.issuer_url,
+                                                               &data.settings.server.interface,
+                                                               &data.settings.server.port)).finish())
     } else {
         warn!("/logout called without valid session information");
         Ok(HttpResponse::Unauthorized().finish())
@@ -135,7 +141,7 @@ pub enum SessionError {
 
 #[get("/callback")]
 async fn callback(session: Session, data: web::Data<AppState>, authorization_info: web::Query<OpCallback>) -> Result<HttpResponse, Error> {
-    if let Some(oidc_state) = session.get::<OpenIdConnectState>("oidc_state")? {
+    if let Some(oidc_state) = session.get::<OpenIdConnectState>(OIDC_SESSION_KEY)? {
         let token_response = data.oidc_client.exchange_code(
             AuthorizationCode::new(authorization_info.into_inner().code.to_string())
         ).set_pkce_verifier(oidc_state.pkce_verifier)
@@ -182,12 +188,12 @@ async fn callback(session: Session, data: web::Data<AppState>, authorization_inf
                     email: mail.to_string(),
                 },
             };
-            session.set("identity", identity)
+            session.set(IDENTITY_SESSION_KEY, identity)
                 .map_err(|_| SessionError::WriteSessionError(user_id.clone()))?;
         } else {
             return Err(Error::from(OIDCError::ClaimsContentError(user_id.clone())));
         }
-        session.remove("oidc_state");
+        session.remove(OIDC_SESSION_KEY);
         info!("Successfully authenticated user {}", &user_id);
     } else {
         return Err(Error::from(OIDCError::CsrfStateError));
@@ -197,7 +203,7 @@ async fn callback(session: Session, data: web::Data<AppState>, authorization_inf
 
 #[get("/secret/{secret_id_client_side}")]
 async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
             .map_err(|_| DatabaseError::ConnectionError)?;
@@ -205,12 +211,12 @@ async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(secre
         let maybe_secret: Option<Secret> = web::block(move || {
             if is_owner_of_secret(&connection, identity, &secret_id_client_side)? {
                 if let Some(secret) = find_secret_by_client_side_id(&connection, &secret_id_client_side)? {
-                    return Ok(Some(secret))
+                    return Ok(Some(secret));
                 }
             }
             Ok(None)
         }).await
-          .map_err(|err| match err {
+            .map_err(|err| match err {
                 BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
                 BlockingError::Canceled => { DatabaseError::ExecutionError }
             })?;
@@ -225,7 +231,7 @@ async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(secre
 
 #[delete("/secret/{secret_id_client_side}")]
 async fn delete_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
             .map_err(|_| DatabaseError::ConnectionError)?;
@@ -233,7 +239,7 @@ async fn delete_secret(session: Session, data: web::Data<AppState>, web::Path(se
         let delete_success: bool = web::block(move || {
             if is_owner_of_secret(&connection, identity, &secret_id_client_side)? {
                 if let Some(_) = delete_secret_by_client_side_id(&connection, &secret_id_client_side)? {
-                    return Ok(true)
+                    return Ok(true);
                 }
             }
             Ok(false)
@@ -253,7 +259,7 @@ async fn delete_secret(session: Session, data: web::Data<AppState>, web::Path(se
 
 #[get("/secrets")]
 async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
             .map_err(|_| DatabaseError::ConnectionError)?;
@@ -277,7 +283,7 @@ async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<Http
 
 #[put("/secret")]
 async fn put_secret(session: Session, data: web::Data<AppState>, payload: web::Json<NewSecret>) -> Result<HttpResponse, Error> {
-    if let Some(identity) = session.get::<Identity>("identity")? {
+    if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
             .map_err(|_| DatabaseError::ConnectionError)?;
@@ -299,26 +305,25 @@ async fn put_secret(session: Session, data: web::Data<AppState>, payload: web::J
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let settings = Settings::init().unwrap();
+    let settings = Arc::new(Settings::init().unwrap());
 
     env_logger::builder().parse_filters(&settings.logging.level).init();
     info!("Tresor is starting up");
 
-    let listen_interface = &settings.server.interface;
-    let listen_port = &settings.server.port;
+    let listen_interface = settings.server.interface.clone();
+    let listen_port = settings.server.port.clone();
 
     let connection_pool = build_db_connection_pool(&settings);
 
     //build OpenId Connect client
     let meta_data = CoreProviderMetadata::discover_async(
-        IssuerUrl::new("http://127.0.0.1:8080/auth/realms/master".to_string()) //TODO configurable
+        IssuerUrl::new(settings.auth.issuer_url.clone())
             .expect("IssuerUrl for OpenID provider must be set"),
         async_http_client).await.unwrap();
 
-    //TODO make everythin configurable
-    let client: OidcClient = Client::new(ClientId::new("tresor-backend".to_string()),
-                                         Option::None,
-                                         IssuerUrl::new("http://127.0.0.1:8080/auth/realms/master".to_string())
+    let client: OidcClient = Client::new(ClientId::new(settings.auth.client_id.clone()),
+                                         Some(ClientSecret::new(settings.auth.client_secret.clone())),
+                                         IssuerUrl::new(settings.auth.issuer_url.clone())
                                              .expect("IssuerUrl for OpenID provider must be set"),
                                          meta_data.authorization_endpoint().clone(),
                                          meta_data.token_endpoint().cloned(),
@@ -326,17 +331,23 @@ async fn main() -> std::io::Result<()> {
                                          meta_data.jwks().to_owned());
 
 
-    let client: Arc<OidcClient> = Arc::new(client.set_redirect_uri(RedirectUrl::new("http://127.0.0.1:8084/callback".to_string()).unwrap()));
+    let client: Arc<OidcClient> = Arc::new(
+        client.set_redirect_uri(
+            RedirectUrl::new(
+                format!("http://{}:{}/callback",
+                        &settings.server.interface,
+                        &settings.server.port).to_string()).unwrap()));
 
 
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
-            .wrap(CookieSession::private(&[0; 32]) //TODO generate key?
+            .wrap(CookieSession::private(&settings.server.cookie_master_key.as_bytes())
                 .secure(false)) //TODO enable TLS
             .data(AppState {
                 connection_pool: connection_pool.clone(),
                 oidc_client: client.clone(),
+                settings: settings.clone()
             })
             .service(hello)
             .service(login)
@@ -360,10 +371,10 @@ struct TresorClaims {
 
 impl AdditionalClaims for TresorClaims {}
 
-
 struct AppState {
     connection_pool: Pool<ConnectionManager<PgConnection>>,
     oidc_client: Arc<OidcClient>,
+    settings: Arc<Settings>
 }
 
 fn build_db_connection_pool(settings: &Settings) -> Pool<ConnectionManager<PgConnection>> {

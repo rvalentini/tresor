@@ -9,7 +9,8 @@ pub struct Database {
 #[derive(Debug, Deserialize)]
 pub struct Server {
     pub interface: String,
-    pub port: String
+    pub port: String,
+    pub cookie_master_key: String
 }
 
 #[derive(Debug, Deserialize)]
@@ -18,10 +19,19 @@ pub struct Logging {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Auth {
+    pub issuer_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub scope: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     pub database: Database,
     pub server: Server,
-    pub logging: Logging
+    pub logging: Logging,
+    pub auth: Auth
 }
 
 impl Settings {

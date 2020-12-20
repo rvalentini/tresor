@@ -1,9 +1,22 @@
 [server]
 interface = "127.0.0.1"
 port = "8084"
+# cookie_master_key is used to derive the cryptographical keys for cookie encryption.
+# As long as this key does not change, client side session data will be accessable by the server.
+# Set a new cookie_master_key before starting the application that MUST be >= 32 CHARS to offer strong encryption!
+cookie_master_key = "jcudf//DCfdk78345dDUCB23$$diehCV"
 
 [database]
 url = "postgres://postgres:aintsecure@localhost/tresor"
+
+[auth]
+issuer_url = "http://127.0.0.1:8080/auth/realms/master"
+# the client_id is a public identifier against the OIDC-provider but should not be guessable by third parties.
+client_id = "jcfhrz7392550sd"
+# client_secret is only known to OIDC-provider and the application and must be kept confidential.
+# Set a new random key >= 32 CHARS before starting the application!
+client_secret = "8cHU783LSC839uhapouji3dHJ34N32SC"
+scope = "tresor"
 
 [logging]
 level = "info"
