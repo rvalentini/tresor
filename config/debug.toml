@@ -1,0 +1,5 @@
+[auth]
+enabletestlogin = "true"
+
+[logging]
+level = "debug"

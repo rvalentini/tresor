@@ -23,6 +23,7 @@ use std::sync::Arc;
 use oauth2::{TokenResponse, ClientSecret};
 use oauth2::basic::{BasicErrorResponseType, BasicTokenType};
 use derive_more::Display;
+use crate::ConfigurationError::SettingsInitializationError;
 
 const OIDC_SESSION_KEY: &str = "oidc_state";
 const IDENTITY_SESSION_KEY: &str = "identity";
@@ -65,6 +66,26 @@ async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRespon
     Ok(HttpResponse::SeeOther().header("Location", auth_url.as_str()).finish())
 }
 
+#[get("/testlogin")]
+async fn test_login(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
+    if data.settings.auth.enabletestlogin {
+        let user_id = "this_is_a_test_user_id".to_string();
+        let identity = Identity {
+            user: User {
+                id: user_id.clone(),
+                tresor_id: "1000".to_string(),
+                tresor_role: Role::User,
+                email: "test.user@some-service.com".to_string(),
+            },
+        };
+        session.set(IDENTITY_SESSION_KEY, identity)
+            .map_err(|_| SessionError::WriteSessionError(user_id.clone()))?;
+        Ok(HttpResponse::Ok().body("Success"))
+    } else {
+        Ok(HttpResponse::NotFound().finish())
+    }
+}
+
 #[get("/logout")]
 async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)
@@ -73,7 +94,7 @@ async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpRespo
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
         Ok(HttpResponse::SeeOther().header("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
-                                                               &data.settings.auth.issuer_url,
+                                                               &data.settings.auth.issuerurl,
                                                                &data.settings.server.interface,
                                                                &data.settings.server.port)).finish())
     } else {
@@ -137,6 +158,12 @@ pub enum SessionError {
     ReadSessionError(String),
     #[display(fmt = "Could not write to session-cookie for user{}", _0)]
     WriteSessionError(String),
+}
+
+#[derive(Debug, Display)]
+pub enum ConfigurationError {
+    #[display(fmt = "Error while constructing settings from file and environment:{}", _0)]
+    SettingsInitializationError(String)
 }
 
 #[get("/callback")]
@@ -305,10 +332,13 @@ async fn put_secret(session: Session, data: web::Data<AppState>, payload: web::J
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let settings = Arc::new(Settings::init().unwrap());
+    let settings = Arc::new(Settings::init()
+        .map_err(|err| SettingsInitializationError(err.to_string()))
+        .expect("Configuration is invalid"));
 
     env_logger::builder().parse_filters(&settings.logging.level).init();
     info!("Tresor is starting up");
+    info!("Tresor run mode is: {:?}", &settings.server.runmode);
 
     let listen_interface = settings.server.interface.clone();
     let listen_port = settings.server.port.clone();
@@ -317,13 +347,13 @@ async fn main() -> std::io::Result<()> {
 
     //build OpenId Connect client
     let meta_data = CoreProviderMetadata::discover_async(
-        IssuerUrl::new(settings.auth.issuer_url.clone())
+        IssuerUrl::new(settings.auth.issuerurl.clone())
             .expect("IssuerUrl for OpenID provider must be set"),
         async_http_client).await.unwrap();
 
-    let client: OidcClient = Client::new(ClientId::new(settings.auth.client_id.clone()),
-                                         Some(ClientSecret::new(settings.auth.client_secret.clone())),
-                                         IssuerUrl::new(settings.auth.issuer_url.clone())
+    let client: OidcClient = Client::new(ClientId::new(settings.auth.clientid.clone()),
+                                         Some(ClientSecret::new(settings.auth.clientsecret.clone())),
+                                         IssuerUrl::new(settings.auth.issuerurl.clone())
                                              .expect("IssuerUrl for OpenID provider must be set"),
                                          meta_data.authorization_endpoint().clone(),
                                          meta_data.token_endpoint().cloned(),
@@ -342,7 +372,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
-            .wrap(CookieSession::private(&settings.server.cookie_master_key.as_bytes())
+            .wrap(CookieSession::private(&settings.server.cookiemasterkey.as_bytes())
                 .secure(false)) //TODO enable TLS
             .data(AppState {
                 connection_pool: connection_pool.clone(),
@@ -351,6 +381,7 @@ async fn main() -> std::io::Result<()> {
             })
             .service(hello)
             .service(login)
+            .service(test_login)
             .service(logout)
             .service(callback)
             .service(get_secret)
