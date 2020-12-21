@@ -30,11 +30,11 @@ const IDENTITY_SESSION_KEY: &str = "identity";
 
 type OidcClient = Client<TresorClaims, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt, StandardErrorResponse<BasicErrorResponseType>, StandardTokenResponse<IdTokenFields<TresorClaims, EmptyExtraTokenFields, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType>, BasicTokenType>, BasicTokenType>;
 
-#[get("/")]
-async fn hello(session: Session) -> Result<HttpResponse, Error> {
+#[get("/whoami")]
+async fn whoami(session: Session) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)
         .map_err(|_| SessionError::ReadSessionError("unknown".to_string()))? {
-        Ok(HttpResponse::Ok().body(format!("Tresor says: Hey ho! Your identity is: {:?}", &identity.user)))
+        Ok(HttpResponse::Ok().json(&identity.user))
     } else {
         Ok(HttpResponse::Unauthorized().finish())
     }
@@ -379,7 +379,7 @@ async fn main() -> std::io::Result<()> {
                 oidc_client: client.clone(),
                 settings: settings.clone()
             })
-            .service(hello)
+            .service(whoami)
             .service(login)
             .service(test_login)
             .service(logout)
