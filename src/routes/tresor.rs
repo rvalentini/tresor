@@ -1,9 +1,9 @@
 use actix_session::Session;
 use actix_web::{HttpResponse, Error, web, get, put, delete};
-use tresor_backend::models::{Identity, Secret, NewSecret};
-use crate::{IDENTITY_SESSION_KEY, AppState};
-use tresor_backend::{find_secret_by_client_side_id, is_owner_of_secret, delete_secret_by_client_side_id, find_all_secrets, insert_secret};
 use actix_web::error::BlockingError;
+use crate::models::{Identity, Secret, NewSecret};
+use crate::{IDENTITY_SESSION_KEY, AppState};
+use crate::database::{find_secret_by_client_side_id, is_owner_of_secret, delete_secret_by_client_side_id, find_all_secrets, insert_secret};
 use crate::error::{DatabaseError, SessionError};
 
 //TODO implement UPDATE for secret/secrets

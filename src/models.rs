@@ -1,15 +1,15 @@
 use serde::{Serialize, Deserialize};
-use super::schema::secrets;
-use super::schema::user_secret;
 use openidconnect::{PkceCodeVerifier, Nonce, CsrfToken};
 use std::fmt;
 use serde::export::Formatter;
 use actix_web::{ResponseError, HttpResponse};
 use uuid::Uuid;
+use crate::schema::secrets;
+use crate::schema::user_secret;
 
 // database
 
-#[derive(Queryable, Insertable, Serialize)]  //TODO write custom serializer to drop 'id' field -> client should never be aware of DB id
+#[derive(Queryable, Insertable, Serialize)]
 pub struct Secret {
     #[serde(skip_serializing)]
     pub id: i32,

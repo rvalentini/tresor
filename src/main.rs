@@ -1,33 +1,38 @@
+#[macro_use]
+extern crate diesel;
+#[macro_use]
+extern crate log;
+extern crate openssl;
+
 mod settings;
 mod error;
+mod database;
+mod schema;
+mod models;
 
 mod routes {
     pub mod oidc;
     pub mod tresor;
 }
 
-extern crate openssl;
-extern crate diesel;
-#[macro_use]
-extern crate log;
-
-use crate::error::ConfigurationError::SettingsInitializationError;
-use crate::settings::Settings;
-use actix_web::middleware::Logger;
-use actix_web::{HttpServer, App};
 use diesel::pg::PgConnection;
 use diesel::r2d2::ConnectionManager;
-use r2d2::Pool;
+use actix_web::middleware::Logger;
+use actix_web::{HttpServer, App};
 use actix_session::CookieSession;
+use r2d2::Pool;
 use serde::{Serialize, Deserialize};
 use openidconnect::{IssuerUrl, ClientId, RedirectUrl, Client, AdditionalClaims, IdTokenFields, StandardErrorResponse, StandardTokenResponse, EmptyExtraTokenFields};
 use openidconnect::reqwest::async_http_client;
 use openidconnect::core::{CoreProviderMetadata, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt};
-use std::sync::Arc;
 use oauth2::ClientSecret;
 use oauth2::basic::{BasicErrorResponseType, BasicTokenType};
+use std::sync::Arc;
+
 use routes::oidc::{login, logout, callback, test_login};
 use routes::tresor::{whoami, get_secret, delete_secret, get_secrets, put_secret};
+use error::ConfigurationError::SettingsInitializationError;
+use settings::Settings;
 
 const IDENTITY_SESSION_KEY: &str = "identity";
 

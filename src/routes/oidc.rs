@@ -1,12 +1,12 @@
 use actix_session::Session;
-use crate::{AppState, IDENTITY_SESSION_KEY};
 use actix_web::{web, get,  HttpResponse, Error};
 use openidconnect::{PkceCodeChallenge, CsrfToken, Nonce, Scope, AuthorizationCode, AsyncCodeTokenRequest, AccessTokenHash};
 use openidconnect::core::CoreAuthenticationFlow;
-use tresor_backend::models::{OpenIdConnectState, Identity, OpCallback, Role, User};
 use openidconnect::reqwest::async_http_client;
 use oauth2::TokenResponse;
+use crate::{AppState, IDENTITY_SESSION_KEY};
 use crate::error::{OIDCError, SessionError};
+use crate::models::{OpenIdConnectState, Identity, OpCallback, Role, User};
 
 const OIDC_SESSION_KEY: &str = "oidc_state";
 
