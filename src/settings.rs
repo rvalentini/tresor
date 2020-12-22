@@ -17,7 +17,6 @@ pub struct Database {
 
 #[derive(Debug, Deserialize)]
 pub struct Server {
-    pub test: String,
     pub interface: String,
     pub port: String,
     pub cookiemasterkey: String,
