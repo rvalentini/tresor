@@ -12,7 +12,9 @@ use std::env;
 
 #[derive(Debug, Deserialize)]
 pub struct Database {
-    pub url: String
+    pub host: String,
+    pub user: String,
+    pub pass: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +45,9 @@ pub struct Logging {
 
 #[derive(Debug, Deserialize)]
 pub struct Auth {
-    pub issuerurl: String,
+    pub host: String,
+    pub port: String,
+    pub realm: String,
     pub clientid: String,
     pub clientsecret: String,
     pub scope: String,

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+curr_dir=$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )
+pushd $curr_dir
 pushd ..
 #building for alpine linux with target musl
 sudo docker run --rm -it -v "$(pwd)":/home/rust/src ekidd/rust-musl-builder cargo build --release
@@ -9,3 +11,4 @@ popd || exit
 sudo docker build --tag tresor_backend .
 rm ./tresor_backend
 rm -R ./config
+popd

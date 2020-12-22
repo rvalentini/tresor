@@ -1,0 +1,60 @@
+version: "3.8"
+services:
+  postgres:
+    image: "postgres"
+    volumes:
+      - ./nothing:/var/lib/postgresql/data
+      - ./sql_inits:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=aintsecure
+    ports:
+      - 5432:5432
+  postgres-migration:
+    image: "diesel-migration"
+    environment:
+      - DATABASE_URL=postgres://postgres:aintsecure@postgres/tresor
+    volumes:
+      - ../migrations:/volume/migrations
+      - ../docker/wait-for-it.sh:/volume/wait-for-it.sh
+    working_dir: /volume
+    depends_on:
+      - "postgres"
+    entrypoint: /bin/sh
+    command: -c "./wait-for-it.sh postgres:5432 -- echo 'Postgres is up and running!' && diesel migration run"
+
+  keycloak:
+    image: jboss/keycloak
+    environment:
+      - DB_VENDOR=h2
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=aintsecure
+      - KEYCLOAK_IMPORT=/tmp/tresor.json
+    volumes:
+      - ./keycloak-config/tresor.json:/tmp/tresor.json
+    ports:
+      - 8080:8080
+
+  web:
+    image: "tresor_backend"
+    depends_on:
+      - "postgres-migration"
+      - "postgres"
+      - "keycloak"
+    ports:
+      - 8084:8084
+    environment:
+      - TRESOR_DATABASE_HOST=postgres
+      - TRESOR_DATABASE_USER=postgres
+      - TRESOR_DATABASE_PASS=aintsecure
+      - TRESOR_AUTH_HOST=keycloak
+      - TRESOR_AUTH_PORT=8080
+      - TRESOR_AUTH_REALM=tresor
+      # RUNMODE=debug also enables the /testlogin route -> this also works without any Keycloak interaction
+      - TRESOR_SERVER_RUNMODE=debug
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      ./wait-for-it.sh postgres:5432 -- echo 'Postgres is up and running!' &&
+      ./wait-for-it.sh -t 30 keycloak:9990 -- echo 'Keycloak is up and running!' &&   
+      ./tresor_backend"

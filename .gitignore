@@ -10,3 +10,10 @@
 **/*.rs.bk
 
 .idea*
+
+/local-testing/nothing
+# The keycloak realm exports are available via Docker volume mappings at the following directories
+# only the actual realm export JSON file is relevant for version control
+/local-testing/keycloak-config/*
+!/local-testing/keycloak-config/tresor.json
+

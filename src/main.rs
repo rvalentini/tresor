@@ -53,17 +53,23 @@ async fn main() -> std::io::Result<()> {
 
     let connection_pool = build_db_connection_pool(&settings);
 
+    let issuer_url = format!("http://{}:{}/auth/realms/{}",
+                             &settings.auth.host,
+                             &settings.auth.port,
+                             &settings.auth.realm);
+
     //build OpenId Connect client
     let meta_data = CoreProviderMetadata::discover_async(
-        IssuerUrl::new(settings.auth.issuerurl.clone())
+        IssuerUrl::new(issuer_url.clone())
             .expect("IssuerUrl for OpenID provider must be set"),
         async_http_client).await.unwrap();
 
     let client: OidcClient = Client::new(ClientId::new(settings.auth.clientid.clone()),
                                          Some(ClientSecret::new(settings.auth.clientsecret.clone())),
-                                         IssuerUrl::new(settings.auth.issuerurl.clone())
+                                         IssuerUrl::new(issuer_url.clone())
                                              .expect("IssuerUrl for OpenID provider must be set"),
-                                         meta_data.authorization_endpoint().clone(),
+                                         meta_data.authorization_endpoint().clone(),  //TODO maybe here broadcast url?? PROBLEM: user is redirected to http://keycloak:8080/blah
+                                                                                              //TODO  authorization_url is used for /login redirect!!
                                          meta_data.token_endpoint().cloned(),
                                          meta_data.userinfo_endpoint().cloned(),
                                          meta_data.jwks().to_owned());
@@ -117,7 +123,10 @@ struct TresorClaims {
 impl AdditionalClaims for TresorClaims {}
 
 fn build_db_connection_pool(settings: &Settings) -> Pool<ConnectionManager<PgConnection>> {
-    let database_url = &settings.database.url;
+    let database_url = format!("postgres://{}:{}@{}/tresor",
+                               &settings.database.user,
+                               &settings.database.pass,
+                               &settings.database.host);
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     r2d2::Pool::builder()
         .build(manager)

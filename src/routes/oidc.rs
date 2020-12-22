@@ -127,7 +127,10 @@ pub async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpR
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
         Ok(HttpResponse::SeeOther().header("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
-                                                               &data.settings.auth.issuerurl,
+                                                               format!("http://{}:{}/auth/realms/{}",
+                                                                       &data.settings.auth.host,
+                                                                       &data.settings.auth.port,
+                                                                       &data.settings.auth.realm),
                                                                &data.settings.server.interface,
                                                                &data.settings.server.port)).finish())
     } else {

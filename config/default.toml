@@ -7,12 +7,17 @@ port = "8084"
 cookiemasterkey = "jcudf//DCfdk78345dDUCB23$$diehCV"
 
 [database]
-url = "postgres://postgres:aintsecure@localhost/tresor"
+host = "localhost"
+user = "postgres"
+pass = "aintsecure"
 
 [auth]
-issuerurl = "http://127.0.0.1:8080/auth/realms/master"
+# The following configuration refers to the Keycloak instance used for authentication/authorization
+host = "localhost"
+port = "8080"
+realm = "tresor"
 # the clientid is a public identifier against the OIDC-provider but should not be guessable by third parties.
-clientid = "jcfhrz7392550sd"
+clientid = "tresor-backend"
 # client_secret is only known to OIDC-provider and the application and must be kept confidential.
 # Set a new random key >= 32 CHARS before starting the application!
 clientsecret = "8cHU783LSC839uhapouji3dHJ34N32SC"
