@@ -25,7 +25,7 @@ use serde::{Serialize, Deserialize};
 use openidconnect::{IssuerUrl, ClientId, RedirectUrl, Client, AdditionalClaims, IdTokenFields, StandardErrorResponse, StandardTokenResponse, EmptyExtraTokenFields};
 use openidconnect::reqwest::async_http_client;
 use openidconnect::core::{CoreProviderMetadata, CoreAuthDisplay, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJsonWebKey, CoreAuthPrompt};
-use oauth2::ClientSecret;
+use oauth2::{ClientSecret, AuthUrl};
 use oauth2::basic::{BasicErrorResponseType, BasicTokenType};
 use std::sync::Arc;
 
@@ -52,11 +52,7 @@ async fn main() -> std::io::Result<()> {
     let listen_port = settings.server.port.clone();
 
     let connection_pool = build_db_connection_pool(&settings);
-
-    let issuer_url = format!("http://{}:{}/auth/realms/{}",
-                             &settings.auth.host,
-                             &settings.auth.port,
-                             &settings.auth.realm);
+    let issuer_url = settings.build_issuer_url();
 
     //build OpenId Connect client
     let meta_data = CoreProviderMetadata::discover_async(
@@ -66,10 +62,10 @@ async fn main() -> std::io::Result<()> {
 
     let client: OidcClient = Client::new(ClientId::new(settings.auth.clientid.clone()),
                                          Some(ClientSecret::new(settings.auth.clientsecret.clone())),
-                                         IssuerUrl::new(issuer_url.clone())
+                                         IssuerUrl::new(settings.build_issuer_redirect_url())
                                              .expect("IssuerUrl for OpenID provider must be set"),
-                                         meta_data.authorization_endpoint().clone(),  //TODO maybe here broadcast url?? PROBLEM: user is redirected to http://keycloak:8080/blah
-                                                                                              //TODO  authorization_url is used for /login redirect!!
+                                         AuthUrl::new(settings.build_auth_redirect_url())
+                                             .expect("Auth configuration is not a valid URL"),
                                          meta_data.token_endpoint().cloned(),
                                          meta_data.userinfo_endpoint().cloned(),
                                          meta_data.jwks().to_owned());
@@ -77,11 +73,7 @@ async fn main() -> std::io::Result<()> {
 
     let client: Arc<OidcClient> = Arc::new(
         client.set_redirect_uri(
-            RedirectUrl::new(
-                format!("http://{}:{}/callback",
-                        &settings.server.interface,
-                        &settings.server.port).to_string()).unwrap()));
-
+            RedirectUrl::new(settings.build_tresor_redirect_url()).unwrap()));
 
     HttpServer::new(move || {
         App::new()

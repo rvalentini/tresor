@@ -21,6 +21,7 @@ pub struct Database {
 pub struct Server {
     pub interface: String,
     pub port: String,
+    pub redirecthost: String,
     pub cookiemasterkey: String,
     #[serde(default)]
     pub runmode: RunMode,
@@ -48,6 +49,7 @@ pub struct Auth {
     pub host: String,
     pub port: String,
     pub realm: String,
+    pub redirecthost: String,
     pub clientid: String,
     pub clientsecret: String,
     pub scope: String,
@@ -93,6 +95,39 @@ impl Settings {
         // https://github.com/mehcode/config-rs/blob/master/examples/hierarchical-env/src/settings.rs
 
         config.try_into()
+    }
+
+    /// Returns the URL that is used by Keycloak to redirect back to the Tresor backend application
+    /// Note: 'redirect'  from the perspective of Keycloak
+    /// Note: this should be the /callback route
+    pub fn build_tresor_redirect_url(&self) -> String {
+        format!("http://{}:{}/callback",
+                self.server.redirecthost,
+                self.server.port)
+    }
+
+    /// Returns the URL that is used by the Tresor backend application to redirect the user to Keycloak
+    pub fn build_auth_redirect_url(&self) -> String {
+        format!("http://{}:{}/auth/realms/{}/protocol/openid-connect/auth",
+                self.auth.redirecthost,
+                self.auth.port,
+                self.auth.realm)
+    }
+
+    /// Returns the URL that is used by the Tresor backend application to find and communicate with Keycloak directly
+    pub fn build_issuer_url(&self) -> String {
+        format!("http://{}:{}/auth/realms/{}",
+                self.auth.host,
+                self.auth.port,
+                self.auth.realm)
+    }
+
+    /// Returns the URL that can be used to redirect the user to Keycloak
+    pub fn build_issuer_redirect_url(&self) -> String {
+        format!("http://{}:{}/auth/realms/{}",
+                self.auth.redirecthost,
+                self.auth.port,
+                self.auth.realm)
     }
 }
 

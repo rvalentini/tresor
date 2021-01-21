@@ -35,7 +35,7 @@ services:
     ports:
       - 8080:8080
 
-  web:
+  tresor-backend:
     image: "tresor_backend"
     depends_on:
       - "postgres-migration"
@@ -56,5 +56,5 @@ services:
     command: >
       -c "
       ./wait-for-it.sh postgres:5432 -- echo 'Postgres is up and running!' &&
-      ./wait-for-it.sh -t 30 keycloak:9990 -- echo 'Keycloak is up and running!' &&   
+      ./wait-for-it.sh -t 30 keycloak:8080 -- echo 'Keycloak is up and running!' &&
       ./tresor_backend"

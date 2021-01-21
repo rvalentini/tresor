@@ -1,5 +1,5 @@
 use actix_session::Session;
-use actix_web::{web, get,  HttpResponse, Error};
+use actix_web::{web, get, HttpResponse, Error};
 use openidconnect::{PkceCodeChallenge, CsrfToken, Nonce, Scope, AuthorizationCode, AsyncCodeTokenRequest, AccessTokenHash};
 use openidconnect::core::CoreAuthenticationFlow;
 use openidconnect::reqwest::async_http_client;
@@ -52,8 +52,10 @@ pub async fn callback(session: Session, data: web::Data<AppState>, authorization
         let claims = id_token.claims(
             &data.oidc_client.id_token_verifier(),
             &oidc_state.nonce)
-            .map_err(|_| OIDCError::ClaimsVerificationError)?;
-
+            .map_err(|err| {
+                println!("Error is: {:?}", err);
+                OIDCError::ClaimsVerificationError //TODO check what exactly happens here / which error is thrown
+            })?;
         match claims.access_token_hash() {
             None => { Err(OIDCError::MissingTokenHashError) }
             Some(given_token_hash) => {
@@ -118,7 +120,6 @@ pub async fn test_login(session: Session, data: web::Data<AppState>) -> Result<H
     }
 }
 
-
 #[get("/logout")]
 pub async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)
@@ -127,11 +128,8 @@ pub async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpR
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
         Ok(HttpResponse::SeeOther().header("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
-                                                               format!("http://{}:{}/auth/realms/{}",
-                                                                       &data.settings.auth.host,
-                                                                       &data.settings.auth.port,
-                                                                       &data.settings.auth.realm),
-                                                               &data.settings.server.interface,
+                                                               &data.settings.build_issuer_redirect_url(),
+                                                               &data.settings.server.redirecthost,
                                                                &data.settings.server.port)).finish())
     } else {
         warn!("/logout called without valid session information");

@@ -1,6 +1,10 @@
 [server]
 interface = "127.0.0.1"
 port = "8084"
+# The "redirect" host ist used to build the callback URL, which is used by Keycloak to redirect back to the Tresor backend
+# This is especially important in Dockerized environments, when the user and applications routing tables differ
+# NOTE: in Keycloak allowed redirect URLs have to be configured and "localhost" is not the same as "127.0.0.1" in this context!
+redirecthost = "127.0.0.1"
 # cookiemasterkey is used to derive the cryptographical keys for cookie encryption.
 # As long as this key does not change, client side session data will be accessable by the server.
 # Set a new cookie_master_key before starting the application that MUST be >= 32 CHARS to offer strong encryption!
@@ -16,6 +20,9 @@ pass = "aintsecure"
 host = "localhost"
 port = "8080"
 realm = "tresor"
+# The "redirect" host ist used to build the auth_url, which is used for the /login route redirect to keycloak
+# This is especially important in Dockerized environments, when the user and applications routing tables differ
+redirecthost = "localhost"
 # the clientid is a public identifier against the OIDC-provider but should not be guessable by third parties.
 clientid = "tresor-backend"
 # client_secret is only known to OIDC-provider and the application and must be kept confidential.
