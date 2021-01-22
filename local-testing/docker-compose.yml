@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   postgres:
-    image: "postgres"
+    image: postgres
     volumes:
       - ./nothing:/var/lib/postgresql/data
       - ./sql_inits:/docker-entrypoint-initdb.d
@@ -11,7 +11,7 @@ services:
     ports:
       - 5432:5432
   postgres-migration:
-    image: "diesel-migration"
+    image: diesel-migration
     environment:
       - DATABASE_URL=postgres://postgres:aintsecure@postgres/tresor
     volumes:
@@ -19,7 +19,7 @@ services:
       - ../docker/wait-for-it.sh:/volume/wait-for-it.sh
     working_dir: /volume
     depends_on:
-      - "postgres"
+      - postgres
     entrypoint: /bin/sh
     command: -c "./wait-for-it.sh postgres:5432 -- echo 'Postgres is up and running!' && diesel migration run"
 
@@ -36,11 +36,11 @@ services:
       - 8080:8080
 
   tresor-backend:
-    image: "tresor_backend"
+    image: tresor_backend
     depends_on:
-      - "postgres-migration"
-      - "postgres"
-      - "keycloak"
+      - postgres-migration
+      - postgres
+      - keycloak
     ports:
       - 8084:8084
     environment:

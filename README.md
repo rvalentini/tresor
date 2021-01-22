@@ -42,8 +42,41 @@ All routes except `/login` and `/testlogin` return a Httpstatus `401 - Unauthori
 
 Note: the directory /postman contains a collection of Postman request for easy testing
 ## Configuration
-
 TODO
+
+## Local test setup (docker-compose)
+
+Inside the directory `local-testing` you will a preconfigured test setup that includes all three applications:
+1) `Tresor backend`
+2) `Postgres`
+3) `Keycloak`
+
+The only thing you have to do for setup is to run 
+```
+./init.sh
+```
+This will start all three applications in a Docker environment.
+Available endpoints after statup are:
+1) Tresor backend: `127.0.0.1:8084`
+2) Postgres: `127.0.0.1:5432`
+1) Keycloak: `127.0.0.1:8080`
+
+The admin console login for <b>Keycloak</b> is
+```
+user: admin
+password: aintsecure
+```
+There is a user for the realm `tresor` preconfigured, which you can use for the Tresor login via `127.0.0.1:8084/login`:
+```
+user: holger@tresor.de
+password: aintsecure
+```
+
+Note: The `/testlogin` route is also available in the docker-compose setup, so you can also use Postman (see the `postman` directory for a configuration file)
+to test the routes. When using `/testlogin` you are logged in as a different test-user. This works completely without Keycloak.
+
+Note: State changes of <b>Postgres</b> and <b>Keycloak</b> are currently <b>NOT</b> persisted. Everytime you run `./init.sh` you will end up with the same, fresh test setup.
+
 
 ## Local test setup (manual)
 
@@ -81,12 +114,46 @@ diesel migration run --database-url postgres://postgres:aintsecure@localhost/tre
 ```
 ### 2) Keycloak
 
-Setup keycloak
+#### Setup keycloak
 ```
 docker run -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=password --name tresor-keycloak -p 8080:8080 jboss/keycloak
 ```
-TODO document manual steps within KeyCloak
 
-## Local test setup (docker-compose)
+Manual steps used for the local-tests setup:
+```
+1) create new client "tresor-backend"
+1.1) set valid re-direct url http://127.0.0.1:8084/*
+2) add client scope "tresor"
+3) for each custom user field add a new mapper to the client scope
+    * mapper type == user attribute (NOT property!!!)
+    * claim JSON type == String
+4) add user 
+5) set a non temporary password for the user
+6) add attributes to the user e.g. tresor_id, tresor_role
+7) add client scope "tresor" to client (to "Assigned Default Client Scopes")
+```
 
-TODO Postres & KeyCloak scripted
+
+#### Keycloak realm export
+The Keycloak realm export is only necessary for the docker-compose environment configuration. The whole realm `tresor` is exported as JSON
+and can be injected then during docker-compose init.
+
+1) Start a Keycloak docker instance that has the `/tmp` directory mounted to the host machine - this will be used for the JSON export
+```
+# The docker container must have a volume mapping to access the exports in the end
+docker run -d -p 8080:8080 -e KEYCLOAK_USER=admin -e \
+KEYCLOAK_PASSWORD=admin -v $(pwd):/tmp --name kc \
+jboss/keycloak
+```
+2) Configure the Keycloak instance manually the way you want it.
+3) Run the following command so the whole real is exported as JSON file.
+```
+# Execute this command to create a new JSON file containing the complete real export in the mounted directory
+docker exec -it kc /opt/jboss/keycloak/bin/standalone.sh \
+-Djboss.socket.binding.port-offset=100 -Dkeycloak.migration.action=export \
+-Dkeycloak.migration.provider=singleFile \
+-Dkeycloak.migration.realmName=tresor \
+-Dkeycloak.migration.usersExportStrategy=REALM_FILE \
+-Dkeycloak.migration.file=/tmp/tresor.json
+```
+

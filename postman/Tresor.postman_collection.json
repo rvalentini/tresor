@@ -1,18 +1,19 @@
 {
+	"variables": [],
 	"info": {
-		"_postman_id": "0d534028-45f9-4918-877b-14c4cdfe148e",
 		"name": "Tresor",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+		"_postman_id": "9e548f1b-bd58-37b9-d0b1-3111d5ae2c0b",
+		"description": "",
+		"schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json"
 	},
 	"item": [
 		{
 			"name": "GET /testlogin",
 			"request": {
+				"url": "http://127.0.0.1:8084/testlogin",
 				"method": "GET",
 				"header": [],
-				"url": {
-					"raw": ""
-				},
+				"body": {},
 				"description": "This request should be executed first when the 'debug' profile is active on the tresor server. \n\nIt performs an automatic login for a test user, which can then be used to test the functionality of the other routes."
 			},
 			"response": []
@@ -20,88 +21,75 @@
 		{
 			"name": "GET /whoami",
 			"request": {
+				"url": "http://127.0.0.1:8084/whoami",
 				"method": "GET",
 				"header": [],
-				"url": {
-					"raw": ""
-				}
+				"body": {},
+				"description": ""
 			},
 			"response": []
 		},
 		{
 			"name": "GET /secrets",
 			"request": {
+				"url": "http://127.0.0.1:8084/secrets",
 				"method": "GET",
 				"header": [],
-				"url": {
-					"raw": ""
-				}
+				"body": {},
+				"description": ""
 			},
 			"response": []
 		},
 		{
 			"name": "GET /secret/{id}",
 			"request": {
+				"url": "http://127.0.0.1:8084/secret/{id}",
 				"method": "GET",
 				"header": [],
-				"url": {
-					"raw": "127.0.0.1:8084/secret/{id}",
-					"host": [
-						"127",
-						"0",
-						"0",
-						"1"
-					],
-					"port": "8084",
-					"path": [
-						"secret",
-						"{id}"
-					]
-				}
+				"body": {},
+				"description": ""
 			},
 			"response": []
 		},
 		{
 			"name": "PUT /secret",
 			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": ""
-				}
+				"url": "http://127.0.0.1:8084/secret",
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"description": ""
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"name\": \"psssssst\",\n \"content\" : \"This is some seriously secret secret!\",\n \"url\" : \"https://serious.serious.secret.de\"}"
+				},
+				"description": ""
 			},
 			"response": []
 		},
 		{
 			"name": "DELETE /secret/{id}",
 			"request": {
+				"url": "http://127.0.0.1:8084/secret/{id}",
 				"method": "DELETE",
 				"header": [],
-				"url": {
-					"raw": "127.0.0.1:8084/secret/{id}",
-					"host": [
-						"127",
-						"0",
-						"0",
-						"1"
-					],
-					"port": "8084",
-					"path": [
-						"secret",
-						"{id}"
-					]
-				}
+				"body": {},
+				"description": ""
 			},
 			"response": []
 		},
 		{
 			"name": "GET /logout",
 			"request": {
+				"url": "http://127.0.0.1:8084/logout",
 				"method": "GET",
 				"header": [],
-				"url": {
-					"raw": ""
-				}
+				"body": {},
+				"description": ""
 			},
 			"response": []
 		}

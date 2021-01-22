@@ -22,6 +22,7 @@ pub struct Secret {
 #[derive(Queryable, Insertable, AsChangeset, Deserialize, Debug)]
 #[table_name="secrets"]
 pub struct NewSecret {
+    #[serde(skip_deserializing)]
     #[serde(default = "random_uuid")]
     pub client_side_id: String,
     pub name: String,
