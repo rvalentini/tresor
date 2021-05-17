@@ -1,6 +1,14 @@
-# tresor-backend
+# Tresor
 
-Backend web-server application for secrets storage
+This is an example CRUD-application written in Rust that showcases how to use OpenID Connect authentication with Keycloak 
+as identity provider.
+
+Used technologies:
+
+* [Actix-Web](https://github.com/actix/actix-web) as web framework 
+* [Diesel](https://diesel.rs/) crate for Postgres operations
+* [openidconnect-rs](https://github.com/ramosbugs/openidconnect-rs) for OpenID Connect protocol implementation
+* [Keycloak](https://www.keycloak.org/) as identity provider
 
 ## Build dependencies
 
@@ -27,7 +35,7 @@ Note: application will be reachable on port `8084` by default
 
 ## Routes
 
-All routes except `/login` and `/testlogin` return a Httpstatus `401 - Unauthorized` by default. 
+All routes except `/login` and `/testlogin` return a Httpstatus `401 - Unauthorized` by default without valid user login. 
 
 * `GET /login` performs an OpenId Connect authentication (Authentication Flow) via KeyCloak
 * `GET /testlogin` performs an automatic test-user login without credentials. 
@@ -41,8 +49,6 @@ All routes except `/login` and `/testlogin` return a Httpstatus `401 - Unauthori
 
 
 Note: the directory /postman contains a collection of Postman request for easy testing
-## Configuration
-TODO
 
 ## Local test setup (docker-compose)
 
