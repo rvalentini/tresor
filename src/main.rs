@@ -15,11 +15,14 @@ mod routes {
     pub mod tresor;
 }
 
+use actix_session::SessionMiddleware;
+use actix_web::cookie;
+use actix_web::web::Data;
 use diesel::pg::PgConnection;
 use diesel::r2d2::ConnectionManager;
 use actix_web::middleware::Logger;
 use actix_web::{HttpServer, App};
-use actix_session::CookieSession;
+use actix_session::storage::CookieSessionStore;
 use r2d2::Pool;
 use serde::{Serialize, Deserialize};
 use openidconnect::{IssuerUrl, ClientId, RedirectUrl, Client, AdditionalClaims, IdTokenFields, StandardErrorResponse, StandardTokenResponse, EmptyExtraTokenFields};
@@ -78,13 +81,20 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
-            .wrap(CookieSession::private(&settings.server.cookiemasterkey.as_bytes())
-                .secure(false)) //TODO enable TLS
-            .data(AppState {
+            .wrap(
+                SessionMiddleware::builder(
+                    CookieSessionStore::default(),
+                    cookie::Key::from(settings.server.cookiemasterkey.as_bytes()),
+                )
+                //TODO enable TLS
+                .cookie_secure(false)
+                .build(),
+            )
+            .app_data(Data::new(AppState {
                 connection_pool: connection_pool.clone(),
                 oidc_client: client.clone(),
                 settings: settings.clone(),
-            })
+            }))
             .service(whoami)
             .service(login)
             .service(test_login)
@@ -124,4 +134,3 @@ fn build_db_connection_pool(settings: &Settings) -> Pool<ConnectionManager<PgCon
         .build(manager)
         .expect("Failed to create DB connection pool, please check the database url!")
 }
-

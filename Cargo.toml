@@ -10,8 +10,8 @@ edition = "2018"
 config = "0.10"
 derive_more = "0.99"
 openssl = "0.10"
-actix-web = "3"
-actix-session = "0.4.0"
+actix-web = "4"
+actix-session = { version = "0.8", features = ["cookie-session"] }
 log = "0.4.0"
 env_logger = "0.7.1"
 diesel = { version = "1.4.4", features = ["postgres", "r2d2"] }
