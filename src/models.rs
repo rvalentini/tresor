@@ -1,7 +1,6 @@
 use serde::{Serialize, Deserialize};
 use openidconnect::{PkceCodeVerifier, Nonce, CsrfToken};
 use std::fmt;
-use serde::export::Formatter;
 use actix_web::{ResponseError, HttpResponse};
 use uuid::Uuid;
 use crate::schema::secrets;
@@ -112,7 +111,7 @@ impl ResponseError for UnknownRoleError {
 
 
 impl fmt::Display for UnknownRoleError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description)
     }
 }

@@ -1,6 +1,5 @@
 use actix_session::Session;
 use actix_web::{HttpResponse, Error, web, get, put, delete};
-use actix_web::error::BlockingError;
 use crate::models::{Identity, Secret, NewSecret};
 use crate::{IDENTITY_SESSION_KEY, AppState};
 use crate::database::{find_secret_by_client_side_id, is_owner_of_secret, delete_secret_by_client_side_id, find_all_secrets, insert_secret};
@@ -19,7 +18,7 @@ pub async fn whoami(session: Session) -> Result<HttpResponse, Error> {
 }
 
 #[get("/secret/{secret_id_client_side}")]
-pub async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
+pub async fn get_secret(session: Session, data: web::Data<AppState>, secret_id_client_side: web::Path<String>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
@@ -33,10 +32,8 @@ pub async fn get_secret(session: Session, data: web::Data<AppState>, web::Path(s
             }
             Ok(None)
         }).await
-            .map_err(|err| match err {
-                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
-                BlockingError::Canceled => { DatabaseError::ExecutionError }
-            })?;
+            .map_err(|_| DatabaseError::ExecutionError)?
+            .map_err(DatabaseError::DieselOperationError)?;
         match maybe_secret {
             None => { Ok(HttpResponse::NotFound().body(format!("Requested secret does not exist"))) }
             Some(secret) => { Ok(HttpResponse::Ok().json(secret)) }
@@ -56,10 +53,8 @@ pub async fn get_secrets(session: Session, data: web::Data<AppState>) -> Result<
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
         let secrets: Vec<Secret> = web::block(move || find_all_secrets(&connection, identity))
             .await
-            .map_err(|err| match err {
-                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
-                BlockingError::Canceled => { DatabaseError::ExecutionError }
-            })?;
+            .map_err(|_| DatabaseError::ExecutionError)?
+            .map_err(DatabaseError::DieselOperationError)?;
 
         match secrets.as_slice() {
             [] => { Ok(HttpResponse::NotFound().body("No secrets found!")) }
@@ -80,10 +75,8 @@ pub async fn put_secret(session: Session, data: web::Data<AppState>, payload: we
         //web::block() is used to offload the blocking DB operations without blocking the server thread.
         let secret: Secret = web::block(move || insert_secret(&connection, identity, &payload))
             .await
-            .map_err(|err| match err {
-                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
-                BlockingError::Canceled => { DatabaseError::ExecutionError }
-            })?;
+            .map_err(|_| DatabaseError::ExecutionError)?
+            .map_err(DatabaseError::DieselOperationError)?;
         Ok(HttpResponse::Ok().json(secret))
     } else {
         Ok(HttpResponse::Unauthorized().finish())
@@ -92,7 +85,7 @@ pub async fn put_secret(session: Session, data: web::Data<AppState>, payload: we
 
 
 #[delete("/secret/{secret_id_client_side}")]
-pub async fn delete_secret(session: Session, data: web::Data<AppState>, web::Path(secret_id_client_side): web::Path<String>) -> Result<HttpResponse, Error> {
+pub async fn delete_secret(session: Session, data: web::Data<AppState>, secret_id_client_side: web::Path<String>) -> Result<HttpResponse, Error> {
     if let Some(identity) = session.get::<Identity>(IDENTITY_SESSION_KEY)? {
         let connection = data.connection_pool
             .get()
@@ -106,10 +99,8 @@ pub async fn delete_secret(session: Session, data: web::Data<AppState>, web::Pat
             }
             Ok(false)
         }).await
-            .map_err(|err| match err {
-                BlockingError::Error(err) => { DatabaseError::DieselOperationError(err) }
-                BlockingError::Canceled => { DatabaseError::ExecutionError }
-            })?;
+        .map_err(|_| DatabaseError::ExecutionError)?
+        .map_err(DatabaseError::DieselOperationError)?;
         match delete_success {
             false => { Ok(HttpResponse::NotFound().body(format!("Cannot delete, secret does not exist"))) }
             true => { Ok(HttpResponse::NoContent().finish()) }

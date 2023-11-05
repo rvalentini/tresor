@@ -29,11 +29,11 @@ pub async fn login(session: Session, data: web::Data<AppState>) -> Result<HttpRe
         nonce,
     };
 
-    session.set(OIDC_SESSION_KEY, &oidc_state)
+    session.insert(OIDC_SESSION_KEY, &oidc_state)
         .map_err(|_| SessionError::WriteSessionError("unknown".to_string()))?;
 
     //redirect to OpenIdProvider for authentication
-    Ok(HttpResponse::SeeOther().header("Location", auth_url.as_str()).finish())
+    Ok(HttpResponse::SeeOther().insert_header(("Location", auth_url.as_str())).finish())
 }
 
 #[get("/callback")]
@@ -87,7 +87,7 @@ pub async fn callback(session: Session, data: web::Data<AppState>, authorization
                     email: mail.to_string(),
                 },
             };
-            session.set(IDENTITY_SESSION_KEY, identity)
+            session.insert(IDENTITY_SESSION_KEY, identity)
                 .map_err(|_| SessionError::WriteSessionError(user_id.clone()))?;
         } else {
             return Err(Error::from(OIDCError::ClaimsContentError(user_id.clone())));
@@ -112,7 +112,7 @@ pub async fn test_login(session: Session, data: web::Data<AppState>) -> Result<H
                 email: "test.user@some-service.com".to_string(),
             },
         };
-        session.set(IDENTITY_SESSION_KEY, identity)
+        session.insert(IDENTITY_SESSION_KEY, identity)
             .map_err(|_| SessionError::WriteSessionError(user_id.clone()))?;
         Ok(HttpResponse::Ok().body("Success"))
     } else {
@@ -127,10 +127,10 @@ pub async fn logout(session: Session, data: web::Data<AppState>) -> Result<HttpR
         info!("Clearing Tresor session for user {}", &identity.user.id);
         session.purge();
         info!("Redirecting to OpenID Connect Provider for session logout");
-        Ok(HttpResponse::SeeOther().header("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
+        Ok(HttpResponse::SeeOther().insert_header(("Location", format!("{}/protocol/openid-connect/logout?redirect_uri=http://{}:{}/login",
                                                                &data.settings.build_issuer_redirect_url(),
                                                                &data.settings.server.redirecthost,
-                                                               &data.settings.server.port)).finish())
+                                                               &data.settings.server.port))).finish())
     } else {
         warn!("/logout called without valid session information");
         Ok(HttpResponse::Unauthorized().finish())
